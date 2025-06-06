@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Contract Staking</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #status { margin-top: 20px; }
+        .feedback { margin-top: 10px; padding: 10px; border: 1px solid #ccc; background-color: #f9f9f9; }
+        .feedback.pending { background-color: #fffacd; border-color: #daa520; }
+        .feedback.confirmed { background-color: #90ee90; border-color: #32cd32; }
+        .feedback.error { background-color: #ffb6c1; border-color: #dc143c; }
+        .section-heading { margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Smart Contract Staking</h1>
+    <button id="stakeButton">Stake Tokens</button>
+    <button id="checkBalanceButton">Check Staked Balance</button>
+    <p id="stakedBalance"></p>
+    <div id="status"></div>
+    <div id="transactionFeedback" class="feedback" style="display: none;"></div>
+
+    <script>
+        let web3;
+        let stakingContract;
+        const contractAddress = "YOUR_STAKING_CONTRACT_ADDRESS"; // Replace with your deployed smart contract address
+        const contractABI = [
+            {
+                "constant": false,
+                "inputs": [{"name": "amount", "type": "uint256"}],
+                "name": "stake",
+                "outputs": [],
+                "payable": false,
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "constant": true,
+                "inputs": [{"name": "staker", "type": "address"}],
+                "name": "getStakedBalance",
+                "outputs": [{"name": "", "type": "uint256"}],
+                "payable": false,
+                "stateMutability": "view",
+                "type": "function"
+            },
+        ];
+
+        // Helper function for displaying transaction feedback
+        function showFeedback(message, type) {
+            const feedbackDiv = document.getElementById('transactionFeedback');
+            feedbackDiv.textContent = message;
+            feedbackDiv.className = `feedback ${type}`;
+            feedbackDiv.style.display = 'block';
+        }
+
+        // Helper function to clear feedback
+        function clearFeedback() {
+            const feedbackDiv = document.getElementById('transactionFeedback');
+            feedbackDiv.style.display = 'none';
+            feedbackDiv.textContent = '';
+            feedbackDiv.className = 'feedback';
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.ethereum) {
+                web3 = new Web3(window.ethereum);
+                try {
+                    await window.ethereum.enable();
+                    stakingContract = new web3.eth.Contract(contractABI, contractAddress);
+                    const accounts = await web3.eth.getAccounts();
+                    if (accounts.length > 0) {
+                        document.getElementById('status').textContent = "Connected account: " + accounts[0];
+                    }
+                } catch (error) {
+                    console.error("User denied account access or other error:", error);
+                    document.getElementById('status').textContent = "Error connecting to wallet.";
+                    showFeedback("Error connecting to wallet. Please ensure MetaMask is unlocked and you've granted access.", "error");
+                }
+            } else {
+                console.warn("Non-Ethereum browser detected. You should consider trying MetaMask!");
+                document.getElementById('status').textContent = "Please install MetaMask.";
+                showFeedback("MetaMask not detected. Please install MetaMask to use this application.", "error");
+            }
+
+            const stakeButton = document.getElementById('stakeButton');
+            if (stakeButton) {
+                stakeButton.addEventListener('click', async () => {
+                    if (!web3 || !stakingContract) {
+                        alert("Please connect your wallet first.");
+                        return;
+                    }
+
+                    const accounts = await web3.eth.getAccounts();
+                    if (accounts.length === 0) {
+                        alert("No accounts found. Please connect to MetaMask.");
+                        return;
+                    }
+
+                    const amountToStake = web3.utils.toWei('1', 'ether'); // Example: Stake 1 token
+                    const senderAddress = accounts[0];
+
+                    clearFeedback(); // Clear previous feedback
+
+                    try {
+                        showFeedback("Transaction pending...", "pending");
+                        const receipt = await stakingContract.methods.stake(amountToStake).send({ from: senderAddress });
+                        console.log("Staking successful:", receipt);
+                        showFeedback("Tokens staked successfully! Transaction confirmed.", "confirmed");
+                        // For a real application, you might want to call getStakedBalance here to update the UI
+                    } catch (error) {
+                        console.error("Staking failed:", error);
+                        // Implement robust error handling:
+                        // Check error.code for specific MetaMask errors (e.g., user rejected transaction)
+                        // Display user-friendly messages based on error type.
+                        if (error.code === 4001) {
+                            showFeedback("Staking transaction rejected by user.", "error");
+                        } else {
+                            showFeedback("Staking failed. Please check the console for details and try again.", "error");
+                        }
+                    }
+                });
+            }
+
+            const checkBalanceButton = document.getElementById('checkBalanceButton');
+            const stakedBalanceDisplay = document.getElementById('stakedBalance');
+
+            if (checkBalanceButton && stakedBalanceDisplay) {
+                checkBalanceButton.addEventListener('click', async () => {
+                    if (!web3 || !stakingContract) {
+                        stakedBalanceDisplay.textContent = "Wallet not connected.";
+                        return;
+                    }
+
+                    const accounts = await web3.eth.getAccounts();
+                    if (accounts.length === 0) {
+                        stakedBalanceDisplay.textContent = "No accounts found.";
+                        return;
+                    }
+
+                    clearFeedback(); // Clear previous feedback
+
+                    try {
+                        const balanceWei = await stakingContract.methods.getStakedBalance(accounts[0]).call();
+                        const balanceEther = web3.utils.fromWei(balanceWei, 'ether');
+                        stakedBalanceDisplay.textContent = `Staked Balance: ${balanceEther} Tokens`;
+                        showFeedback("Staked balance updated.", "confirmed");
+                    } catch (error) {
+                        console.error("Failed to fetch staked balance:", error);
+                        stakedBalanceDisplay.textContent = "Error fetching balance.";
+                        showFeedback("Error fetching staked balance. Please try again.", "error");
+                    }
+                });
+            }
+        });
+    </script>
+
+    <hr>
+    <h2 class="section-heading">Important Considerations for DApp Development</h2>
+
+    <p>These points are crucial for a robust and secure decentralized application:</p>
+
+    <h3>Security Audits</h3>
+    <p>Ensure your smart contracts are **audited by reputable firms**. This is paramount to identify vulnerabilities and ensure the contract behaves as expected, protecting user funds and the integrity of your application.</p>
+
+    <h3>Gas Fees and Automation</h3>
+    <p>Implementing **automatic payment of transaction fees** for AI integration to enable automatic staking and unstaking is a complex feature. This would typically involve a dedicated relayer service or a meta-transaction approach where a third party (or the AI itself) pays the gas fees on behalf of the user. This requires careful design to ensure security and prevent abuse.</p>
+
+    <h3>Error Handling</h3>
+    <p>As demonstrated in the updated JavaScript, **robust error handling is crucial for all blockchain interactions**. You need to anticipate various failure modes (e.g., user rejection, network issues, contract errors) and provide informative feedback to the user. This improves the user experience significantly.</p>
+
+    <h3>User Experience (UX)</h3>
+    <p>Providing **clear feedback during transactions (pending, confirmed, completed)** is essential. Users need to understand the state of their transactions. I've added a basic `transactionFeedback` div and functions (`showFeedback`, `clearFeedback`) to illustrate this in your application. For a production DApp, this would be more sophisticated.</p>
+
+    <h3>Scalability</h3>
+    <p>Design smart contracts for **scalability**. Consider the potential load on your contract and the blockchain network. For high-volume applications, solutions like Layer 2 scaling (e.g., Optimism, Arbitrum, Polygon) or alternative blockchains might be necessary. Your smart contract design should be efficient to minimize gas costs and maximize throughput.</p>
+
+    <h3>Regulatory Compliance</h3>
+    <p>**Be aware of regulations in your target regions**. Decentralized applications are not immune to legal frameworks. This includes knowing your customer (KYC), anti-money laundering (AML), and securities laws, depending on the nature of your application and the tokens involved.</p>
+
+    <h3>Key Management</h3>
+    <p>While your application uses **wallets like MetaMask and Coinbase for secure key management**, it's important to educate users about the importance of securing their private keys and seed phrases. Your application should never handle or store user private keys directly.</p>
+
+    <h3>Data Storage</h3>
+    <p>Decide what data should be **on-chain vs. off-chain to optimize performance**. Storing large amounts of data on-chain is expensive and inefficient. Use decentralized storage solutions (e.g., IPFS, Arweave) for large files or frequently changing data, and store only essential hashes or references on-chain for verification.</p>
+
+</body>
+</html>
+
